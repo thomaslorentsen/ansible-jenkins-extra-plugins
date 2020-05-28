@@ -1,0 +1,56 @@
+---
+- name: Start Jenkins
+  systemd:
+    state: started
+    name: jenkins.service
+    enabled: yes
+
+- name: Make sure jenkins is started
+  shell: "curl -D - --silent --max-time 5 http://localhost:8080/cli/"
+  register: result
+  until: (result.stdout.find("403 Forbidden") != -1) or (result.stdout.find("200 OK") != -1) and (result.stdout.find("Please wait while") == -1)
+  retries: 20
+  delay: 6
+  changed_when: false
+  when: 'not ansible_check_mode'
+  tags: jenkins_plugins
+
+- name: Get jenkins cli
+  get_url:
+    url: http://localhost:8080/jnlpJars/jenkins-cli.jar
+    dest: /var/lib/jenkins/jenkins-cli.jar
+    owner: jenkins
+    group: jenkins
+    mode: 0744
+  retries: 5
+  delay: 5
+  tags: jenkins_plugins
+
+- name: Set jenkins console command
+  set_fact:
+    jenkins_console: "java -jar /var/lib/jenkins/jenkins-cli.jar -s http://localhost:8080 -auth '{{ jenkins_username }}:{{ jenkins_password }}'"
+  tags: jenkins_plugins
+
+#- name: Get installed plugins
+#  shell: "{{ jenkins_console }} list-plugins"
+#  register: installed_plugins
+#  changed_when: no
+#  tags: jenkins_plugins
+
+- name: Download Extra Jenkins plugins
+  get_url:
+    url: "{{ item.url }}"
+    dest: "/tmp/{{ item.name }}.hpi"
+    validate_certs: no
+    #checksum: "{{ item.checksum }}"
+  #when: "item.name + ' ' not in installed_plugins.stdout"
+  with_items: "{{ jenkins_plugins_manual }}"
+  tags: jenkins_plugins
+
+- name: Install Jenkin manual plugins
+  shell: "{{ jenkins_console }} install-plugin -name {{ item.name }} = < /tmp/{{ item.name }}.hpi"
+  no_log: true
+  #when: "item.name + ' ' not in installed_plugins.stdout"
+  with_items: "{{ jenkins_plugins_manual }}"
+  tags: jenkins_plugins
+...
